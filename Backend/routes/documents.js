@@ -6,7 +6,6 @@ const chunkText = require("../utils/chunkText");
 const generateEmbedding = require("../utils/generateEmbedding");
 const router = express.Router();
 
-
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -28,39 +27,47 @@ router.post("/", upload.single("document"), async (req, res) => {
   });
 
   try {
+    // const result = await parser.getText();
+    // const text = result.text;
+    //Update extraction by pages
     const result = await parser.getText();
-    const text = result.text;
-
-    const chunks = chunkText(text);
+    const pages = result.pages.map((page) => ({
+      pageNumber: page.num,
+      text: page.text,
+    }));
     const chunkEmbeddings = [];
+    //const chunks = chunkText(text);
+    for (const page of pages) {
+      const chunks = chunkText(page.text);
 
-    for (const chunk of chunks) {
-      const embedding = await generateEmbedding(chunk);
+      for (const chunk of chunks) {
+        const embedding = await generateEmbedding(chunk);
 
-      chunkEmbeddings.push({
-        text: chunk,
-        embedding,
-      });
+        chunkEmbeddings.push({
+          text: chunk,
+          embedding,
+          pageNumber: page.pageNumber,
+        });
+      }
     }
     for (const item of chunkEmbeddings) {
-  await pool.query(
-    `INSERT INTO document_chunks
+      await pool.query(
+        `INSERT INTO document_chunks
       (document_name, chunk_text, embedding)
      VALUES ($1, $2, $3::halfvec)`,
-    [
-      req.file.originalname,
-      item.text,
-      JSON.stringify(item.embedding),
-    ]
-  );
-}
+        [req.file.originalname, item.text, JSON.stringify(item.embedding)],
+      );
+    }
 
     res.status(200).json({
       message: "PDF text extracted successfully!",
       filename: req.file.originalname,
-      totalChunks: chunks.length,
-      chunks: chunks,
-      chunkEmbeddings,
+      totalChunks: chunkEmbeddings.length,
+      chunks: chunkEmbeddings.map((item) => ({
+        text: item.text,
+        pageNumber: item.pageNumber,
+      })),
+      
     });
   } catch (error) {
     console.error("PDF extraction failed:", error);
