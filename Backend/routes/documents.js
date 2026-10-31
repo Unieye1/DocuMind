@@ -27,7 +27,6 @@ router.post("/", upload.single("document"), async (req, res) => {
   });
 
   try {
-    // const result = await parser.getText();
     // const text = result.text;
     //Update extraction by pages
     const result = await parser.getText();
@@ -35,27 +34,43 @@ router.post("/", upload.single("document"), async (req, res) => {
       pageNumber: page.num,
       text: page.text,
     }));
+    console.log("Extracted text from PDF:", pages);
+    const documentResult = await pool.query(
+      `INSERT INTO documents (filename)
+   VALUES ($1)
+   RETURNING id`,
+      [req.file.originalname],
+    );
+
+    const documentId = documentResult.rows[0].id;
     const chunkEmbeddings = [];
     //const chunks = chunkText(text);
     for (const page of pages) {
       const chunks = chunkText(page.text);
 
-      for (const chunk of chunks) {
+      for (const [index, chunk] of chunks.entries()) {
         const embedding = await generateEmbedding(chunk);
 
         chunkEmbeddings.push({
           text: chunk,
           embedding,
           pageNumber: page.pageNumber,
+          chunkIndex: index,
         });
       }
     }
     for (const item of chunkEmbeddings) {
       await pool.query(
         `INSERT INTO document_chunks
-      (document_name, chunk_text, embedding)
-     VALUES ($1, $2, $3::halfvec)`,
-        [req.file.originalname, item.text, JSON.stringify(item.embedding)],
+      (document_id, page_number, chunk_index, chunk_text, embedding)
+     VALUES ($1, $2, $3, $4, $5::halfvec)`,
+        [
+          documentId,
+          item.pageNumber,
+          item.chunkIndex,
+          item.text,
+          JSON.stringify(item.embedding),
+        ],
       );
     }
 
@@ -67,7 +82,6 @@ router.post("/", upload.single("document"), async (req, res) => {
         text: item.text,
         pageNumber: item.pageNumber,
       })),
-      
     });
   } catch (error) {
     console.error("PDF extraction failed:", error);
