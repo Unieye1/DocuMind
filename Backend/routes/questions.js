@@ -16,7 +16,13 @@ const searchChunksQuery = fs.readFileSync(
 
 router.post("/", async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, documentId } = req.body;
+
+    if (!documentId) {
+      return res.status(400).json({
+        error: "Please provide a document ID",
+      });
+    }
 
     if (!question || !question.trim()) {
       return res.status(400).json({
@@ -28,9 +34,9 @@ router.post("/", async (req, res) => {
 
     const result = await pool.query(searchChunksQuery, [
       JSON.stringify(embedding),
+      documentId,
     ]);
 
-   
     const context = result.rows
       .map((row, index) => `Source ${index + 1}:\n${row.chunk_text}`)
       .join("\n\n");
@@ -62,12 +68,15 @@ ${question}
 
     const answer = response.text;
 
-     res.json({
+    res.json({
       question,
       answer,
       sources: result.rows.map((row) => ({
         id: row.id,
+        documentId: row.document_id,
         documentName: row.document_name,
+        pageNumber: row.page_number,
+        chunkIndex: row.chunk_index,
         chunkText: row.chunk_text,
         distance: row.distance,
       })),

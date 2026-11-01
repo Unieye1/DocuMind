@@ -94,4 +94,58 @@ router.post("/", upload.single("document"), async (req, res) => {
   }
 });
 
+router.get("/", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id,
+        filename,
+        uploaded_at
+      FROM documents
+      ORDER BY uploaded_at DESC
+    `);
+
+    res.status(200).json({
+      documents: result.rows,
+    });
+  } catch (error) {
+    console.error("Failed to fetch documents:", error.message);
+
+    res.status(500).json({
+      error: "Failed to fetch documents",
+    });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `DELETE FROM documents
+       WHERE id = $1
+       RETURNING id, filename`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: "Document not found",
+      });
+    }
+
+    res.status(200).json({
+      message: "Document deleted successfully",
+      document: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error("Failed to delete document:", error.message);
+
+    res.status(500).json({
+      error: "Failed to delete document",
+    });
+  }
+});
+
 module.exports = router;
