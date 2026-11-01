@@ -1,12 +1,15 @@
 const express = require('express');
 const app = express();
+const cors = require("cors");
 app.use(express.json());
 require("dotenv").config();
 const {GoogleGenAI} = require('@google/genai');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
 const port = 3000;
-
+app.use(cors({
+  origin: "http://localhost:5173"
+}));
 
 
 app.get("/", async (req, res) => {
