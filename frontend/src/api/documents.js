@@ -48,3 +48,24 @@ export async function deleteDocument(documentId) {
 
   return data;
 }
+
+export async function askQuestion(question, documentId) {
+  const response = await fetch(`${API_URL}/questions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question,
+      documentId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to get an answer");
+  }
+
+  return data;
+}

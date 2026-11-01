@@ -1,25 +1,26 @@
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
-import { useState, useEffect} from "react";
-import { getDocuments, uploadDocument,deleteDocument } from "./api/documents";
+import { useState, useEffect } from "react";
+import { getDocuments, uploadDocument, deleteDocument } from "./api/documents";
 
 function App() {
   const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
   const [error, setError] = useState("");
 
   async function fetchDocuments() {
-  try {
-    const data = await getDocuments();
-    setDocuments(data);
-  } catch (error) {
-    setError(error.message);
+    try {
+      const data = await getDocuments();
+      setDocuments(data);
+    } catch (error) {
+      setError(error.message);
+    }
   }
-}
 
-useEffect(() => {
-  fetchDocuments();
-}, []);
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
   async function handleUpload(file) {
     if (!file) return;
@@ -40,18 +41,18 @@ useEffect(() => {
   }
 
   async function handleDelete(documentId) {
-  setError("");
+    setError("");
 
-  try {
-    await deleteDocument(documentId);
+    try {
+      await deleteDocument(documentId);
 
-    setDocuments((prevDocuments) =>
-      prevDocuments.filter((document) => document.id !== documentId)
-    );
-  } catch (error) {
-    setError(error.message);
+      setDocuments((prevDocuments) =>
+        prevDocuments.filter((document) => document.id !== documentId),
+      );
+    } catch (error) {
+      setError(error.message);
+    }
   }
-}
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F8F9FC] text-slate-800">
@@ -61,10 +62,15 @@ useEffect(() => {
         onDelete={handleDelete}
         uploading={uploading}
         error={error}
+        selectedDocumentId={selectedDocumentId}
+        onSelectDocument={setSelectedDocumentId}
       />
 
       <main className="flex-1 min-w-0">
-        <ChatWindow />
+        <ChatWindow
+          documents={documents}
+          selectedDocumentId={selectedDocumentId}
+        />
       </main>
     </div>
   );
