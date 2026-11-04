@@ -12,22 +12,6 @@ app.use(cors({
 }));
 
 
-app.get("/", async (req, res) => {
-  try {
-    
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: "Explain what RAG is in simple terms",
-    });
-   
-    res.send(response.text);
-  } catch (error) {
-    console.error("Gemini error:", error.status, error.message);
-    res.status(503).send("Gemini is temporarily unavailable. Try again.");
-  }finally {
-    console.timeEnd("Gemini response time");
-  }
-});
 //Router for handling document uploads
 const documentsRouter = require("./routes/documents");
 app.use("/api/documents", documentsRouter);
@@ -36,6 +20,9 @@ app.use("/api/documents", documentsRouter);
 const questionsRouter = require("./routes/questions");
 app.use("/api/questions", questionsRouter);
 
+// Router for handling conversations
+const conversationsRouter = require("./routes/conversations");
+app.use("/api/conversations", conversationsRouter);
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)

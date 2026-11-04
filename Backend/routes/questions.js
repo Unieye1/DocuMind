@@ -3,6 +3,7 @@ const generateEmbedding = require("../utils/generateEmbedding");
 const pool = require("../db/pool");
 const fs = require("fs");
 const path = require("path");
+const { performance } = require("node:perf_hooks");
 const { GoogleGenAI } = require("@google/genai");
 const router = express.Router();
 const ai = new GoogleGenAI({
@@ -15,12 +16,15 @@ const searchChunksQuery = fs.readFileSync(
 );
 
 router.post("/", async (req, res) => {
+  let currentStage = "initialization";
+  let assistantMessageId;
   try {
-    const { question, documentId } = req.body;
+    const start = performance.now();
+    const { question, conversationId } = req.body;
 
-    if (!documentId) {
+    if (!conversationId) {
       return res.status(400).json({
-        error: "Please provide a document ID",
+        error: "Please provide a conversation ID",
       });
     }
 
@@ -29,48 +33,155 @@ router.post("/", async (req, res) => {
         error: "Please provide a question",
       });
     }
+    // Insert the user's question into the messages table
+    const userMessageResult = await pool.query(
+      `INSERT INTO messages (conversation_id, role, content)
+   VALUES ($1, $2, $3)
+   RETURNING id, conversation_id, role, content, created_at`,
+      [conversationId, "user", question.trim()],
+    );
+    const userMessage = userMessageResult.rows[0];
 
+    // Insert the assistant's answer into the messages table
+    const assistantMessageResult = await pool.query(
+      `INSERT INTO messages (conversation_id, role, content, status)
+    VALUES ($1, $2, $3, $4)
+   RETURNING id`,
+      [conversationId, "assistant", "", "pending"],
+    );
+    assistantMessageId = assistantMessageResult.rows[0].id;
+
+    await pool.query(
+      `UPDATE conversations
+   SET updated_at = NOW()
+   WHERE id = $1`,
+      [conversationId],
+    );
+
+    currentStage = "embedding";
+
+    const embeddingStart = performance.now();
     const embedding = await generateEmbedding(question);
+    const embeddingTime = performance.now() - embeddingStart;
 
+    currentStage = "retrieval";
+    const retrievalStart = performance.now();
     const result = await pool.query(searchChunksQuery, [
       JSON.stringify(embedding),
-      documentId,
+      conversationId,
     ]);
+    const retrievalTime = performance.now() - retrievalStart;
 
+    currentStage = "context mapping";
+    const mappingStart = performance.now();
     const context = result.rows
       .map((row, index) => `Source ${index + 1}:\n${row.chunk_text}`)
       .join("\n\n");
+    const mappingTime = performance.now() - mappingStart;
 
     if (!context) {
+      await pool.query(
+        `UPDATE messages
+     SET status = $1
+     WHERE id = $2`,
+        ["failed", assistantMessageId],
+      );
+
       return res.status(404).json({
         error: "No relevant document chunks found.",
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: `
-You are DocuMind, an assistant that answers questions using the provided document context.
+    currentStage = "Gemini generation";
+    const llmStart = performance.now();
+    let response;
+    let llmTime;
+    try {
+      response = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: `
+   You are DocuMind, an assistant that answers questions using the provided document context.
 
-Rules:
-- Answer using the context provided below.
-- If the context does not contain the answer, say you couldn't find the answer in the uploaded document.
-- Do not invent facts.
-- Be clear and concise.
+    Rules:
+   - Answer using the context provided below.
+   - If the context does not contain the answer, say you couldn't find the answer in the uploaded document.
+   - Do not invent facts.
+   - Be clear and concise.
 
-Document context:
-${context}
+   Document context:
+   ${context}
 
-User question:
-${question}
-`,
-    });
+   User question:
+   ${question}
+   `,
+      });
+    } finally {
+      llmTime = performance.now() - llmStart;
+      console.log("Gemini time:", llmTime, "ms");
+    }
+
+    console.log("Gemini usage:", response.usageMetadata);
+    const totalTime = performance.now() - start;
 
     const answer = response.text;
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Save citations
+      if (result.rows.length > 0) {
+        const values = [];
+        const placeholders = [];
+
+        result.rows.forEach((row, index) => {
+          const offset = index * 3;
+
+          placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3})`);
+
+          values.push(assistantMessageId, row.id, row.distance);
+        });
+
+        await client.query(
+          `INSERT INTO message_sources (message_id, chunk_id, distance)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT (message_id, chunk_id) DO NOTHING`,
+          values,
+        );
+      }
+
+      // Save answer and mark assistant message completed
+      await client.query(
+        `UPDATE messages
+     SET content = $1,
+         status = $2
+     WHERE id = $3`,
+        [answer, "completed", assistantMessageId],
+      );
+
+      await client.query("COMMIT");
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Transaction rollback failed:", rollbackError);
+      }
+
+      throw error;
+    } finally {
+      client.release();
+    }
 
     res.json({
       question,
       answer,
+      embeddingTime,
+      retrievalTime,
+      mappingTime,
+      llmTime,
+      totalTime,
+
       sources: result.rows.map((row) => ({
         id: row.id,
         documentId: row.document_id,
@@ -82,10 +193,29 @@ ${question}
       })),
     });
   } catch (error) {
-    console.error("Question embedding failed:", error.message);
+    if (assistantMessageId) {
+      try {
+        await pool.query(
+          `UPDATE messages
+       SET status = $1
+       WHERE id = $2`,
+          ["failed", assistantMessageId],
+        );
+      } catch (updateError) {
+        console.error(
+          "Failed to update assistant message status:",
+          updateError,
+        );
+      }
+    }
+
+    console.error(`Failed at stage: ${currentStage}`);
+    console.error(error);
 
     res.status(500).json({
-      error: "Failed to generate question embedding",
+      error: "Failed to process question",
+      stage: currentStage,
+      details: error.message,
     });
   }
 });

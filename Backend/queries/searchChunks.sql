@@ -6,9 +6,17 @@ SELECT
     dc.chunk_index,
     dc.chunk_text,
     dc.embedding <=> $1::halfvec AS distance
+
 FROM document_chunks dc
+
 JOIN documents d
     ON d.id = dc.document_id
-WHERE dc.document_id = $2
+
+JOIN conversation_documents cd
+    ON cd.document_id = dc.document_id
+
+WHERE cd.conversation_id = $2
+
 ORDER BY dc.embedding <=> $1::halfvec
+
 LIMIT 5;
