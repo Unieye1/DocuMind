@@ -52,13 +52,64 @@ router.post("/", async (req, res) => {
     assistantMessageId = assistantMessageResult.rows[0].id;
 
     await pool.query(
-      `UPDATE conversations
+  `UPDATE conversations
    SET updated_at = NOW()
    WHERE id = $1`,
-      [conversationId],
-    );
+  [conversationId],
+);
 
-    currentStage = "embedding";
+// Check whether this conversation has attached PDFs
+const attachedDocumentsResult = await pool.query(
+  `SELECT EXISTS (
+     SELECT 1
+     FROM conversation_documents
+     WHERE conversation_id = $1
+   ) AS has_documents`,
+  [conversationId],
+);
+
+// GENERAL CHAT: No PDFs attached
+if (!attachedDocumentsResult.rows[0].has_documents) {
+  currentStage = "Gemini generation (general chat)";
+
+  const llmStart = performance.now();
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.6-flash",
+    contents: `
+      You are DocuMind, a helpful AI assistant.
+
+      Answer the user's question naturally and accurately.
+      Be clear, concise, and helpful.
+
+      User question:
+      ${question}
+    `,
+  });
+
+  const llmTime = performance.now() - llmStart;
+  const answer = response.text;
+
+  await pool.query(
+    `UPDATE messages
+     SET content = $1,
+         status = $2
+     WHERE id = $3`,
+    [answer, "completed", assistantMessageId],
+  );
+
+  const totalTime = performance.now() - start;
+
+  return res.json({
+    question,
+    answer,
+    sources: [],
+    llmTime,
+    totalTime,
+  });
+}
+
+currentStage = "embedding";
 
     const embeddingStart = performance.now();
     const embedding = await generateEmbedding(question);

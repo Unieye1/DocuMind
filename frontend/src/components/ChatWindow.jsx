@@ -1,22 +1,26 @@
 import { useState } from "react";
-import { Send, Paperclip, ChevronDown  } from "lucide-react";
+import { Send, Paperclip, ChevronDown } from "lucide-react";
 import { askQuestion } from "../api/documents";
 import ReactMarkdown from "react-markdown";
 
-function ChatWindow({ documents, selectedDocumentId }) {
+function ChatWindow({
+  conversationId,
+  messages,
+  setMessages,
+  attachedDocuments,
+}) {
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const selectedDocument = documents.find(
-    (document) => document.id === selectedDocumentId,
-  );
+  // const selectedDocument = documents.find(
+  //   (document) => document.id === selectedDocumentId,
+  // );
 
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!question.trim() || !selectedDocumentId || loading) {
+    if (!question.trim() || !conversationId || loading) {
       return;
     }
 
@@ -35,7 +39,7 @@ function ChatWindow({ documents, selectedDocumentId }) {
     setError("");
 
     try {
-      const data = await askQuestion(currentQuestion, selectedDocumentId);
+      const data = await askQuestion(currentQuestion, conversationId);
 
       setMessages((prevMessages) => [
         ...prevMessages,
@@ -54,15 +58,26 @@ function ChatWindow({ documents, selectedDocumentId }) {
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="h-[72px] bg-white border-b border-slate-200 px-8 flex items-center justify-between">
+      <header className="h-[72px] bg-white border-b border-slate-200 px-6 flex items-center justify-between">
         <div>
-          <h2 className="font-semibold text-slate-800">Document Chat</h2>
+          <h2 className="text-sm font-semibold text-slate-800">Conversation</h2>
 
-          <p className="text-xs text-slate-400">
-            {selectedDocument
-              ? `Currently selected: ${selectedDocument.filename}`
-              : "Select a document from the sidebar to get started"}
-          </p>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {attachedDocuments.length > 0 ? (
+              attachedDocuments.map((document) => (
+                <span
+                  key={document.id}
+                  className="text-xs text-violet-700 bg-violet-50 px-2 py-1 rounded-md"
+                >
+                  {document.filename}
+                </span>
+              ))
+            ) : (
+              <p className="text-xs text-slate-400">
+                General conversation · No PDFs attached
+              </p>
+            )}
+          </div>
         </div>
       </header>
 
@@ -163,17 +178,17 @@ function ChatWindow({ documents, selectedDocumentId }) {
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             placeholder={
-              selectedDocument
-                ? "Ask a question about your document..."
-                : "Select a document first..."
+              attachedDocuments.length > 0
+                ? "Ask a question about your documents..."
+                : "Ask me anything..."
             }
-            disabled={!selectedDocument || loading}
+            disabled={!conversationId || loading}
             className="flex-1 outline-none text-sm disabled:cursor-not-allowed"
           />
 
           <button
             type="submit"
-            disabled={!question.trim() || !selectedDocument || loading}
+            disabled={!question.trim() || !conversationId  || loading}
             className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg"
           >
             {loading ? "..." : <Send size={18} />}

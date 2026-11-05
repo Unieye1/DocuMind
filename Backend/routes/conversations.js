@@ -227,4 +227,35 @@ router.get("/:id/messages", async (req, res) => {
   }
 });
 
+// Delete a conversation
+router.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM conversations
+       WHERE id = $1
+       RETURNING id`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Conversation not found",
+      });
+    }
+
+    res.json({
+      message: "Conversation deleted successfully",
+      conversationId: result.rows[0].id,
+    });
+  } catch (error) {
+    console.error("Failed to delete conversation:", error);
+
+    res.status(500).json({
+      error: "Failed to delete conversation",
+    });
+  }
+});
+
 module.exports = router;

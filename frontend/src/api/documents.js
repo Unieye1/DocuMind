@@ -49,7 +49,7 @@ export async function deleteDocument(documentId) {
   return data;
 }
 
-export async function askQuestion(question, documentId) {
+export async function askQuestion(question, conversationId) {
   const response = await fetch(`${API_URL}/questions`, {
     method: "POST",
     headers: {
@@ -57,7 +57,7 @@ export async function askQuestion(question, documentId) {
     },
     body: JSON.stringify({
       question,
-      documentId,
+      conversationId,
     }),
   });
 
