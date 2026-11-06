@@ -5,7 +5,9 @@ const fs = require("fs");
 const path = require("path");
 const { performance } = require("node:perf_hooks");
 const { GoogleGenAI } = require("@google/genai");
+const requireAuth = require("../middleware/requireAuth");
 const router = express.Router();
+router.use(requireAuth);
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
@@ -33,50 +35,88 @@ router.post("/", async (req, res) => {
         error: "Please provide a question",
       });
     }
-    // Insert the user's question into the messages table
-    const userMessageResult = await pool.query(
-      `INSERT INTO messages (conversation_id, role, content)
-   VALUES ($1, $2, $3)
-   RETURNING id, conversation_id, role, content, created_at`,
-      [conversationId, "user", question.trim()],
-    );
-    const userMessage = userMessageResult.rows[0];
 
-    // Insert the assistant's answer into the messages table
-    const assistantMessageResult = await pool.query(
-      `INSERT INTO messages (conversation_id, role, content, status)
-    VALUES ($1, $2, $3, $4)
-   RETURNING id`,
-      [conversationId, "assistant", "", "pending"],
+    // Verify that the conversation belongs to the logged-in user
+    const conversationResult = await pool.query(
+      `SELECT id
+   FROM conversations
+   WHERE id = $1 AND user_id = $2`,
+      [conversationId, req.session.userId],
     );
-    assistantMessageId = assistantMessageResult.rows[0].id;
 
+    if (conversationResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Conversation not found",
+      });
+    }
+   // Atomically insert both messages
+const messageClient = await pool.connect();
+
+try {
+  await messageClient.query("BEGIN");
+
+  // Insert user's message
+  await messageClient.query(
+    `INSERT INTO messages (conversation_id, role, content)
+     VALUES ($1, $2, $3)`,
+    [conversationId, "user", question.trim()]
+  );
+
+  // Insert pending assistant message
+  const assistantMessageResult = await messageClient.query(
+    `INSERT INTO messages (conversation_id, role, content, status)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id`,
+    [conversationId, "assistant", "", "pending"]
+  );
+
+  const newAssistantMessageId = assistantMessageResult.rows[0].id;
+
+  await messageClient.query("COMMIT");
+
+
+  assistantMessageId = newAssistantMessageId;
+
+} catch (error) {
+  try {
+    await messageClient.query("ROLLBACK");
+  } catch (rollbackError) {
+    console.error("Transaction rollback failed:", rollbackError);
+  }
+
+  throw error;
+
+} finally {
+  messageClient.release();
+}
     await pool.query(
-  `UPDATE conversations
+      `UPDATE conversations
    SET updated_at = NOW()
-   WHERE id = $1`,
-  [conversationId],
-);
+   WHERE id = $1 AND user_id = $2`,
+      [conversationId, req.session.userId],
+    );
 
-// Check whether this conversation has attached PDFs
-const attachedDocumentsResult = await pool.query(
-  `SELECT EXISTS (
+    // Check whether this conversation has attached PDFs
+    const attachedDocumentsResult = await pool.query(
+      `SELECT EXISTS (
      SELECT 1
-     FROM conversation_documents
-     WHERE conversation_id = $1
+     FROM conversation_documents cd
+     JOIN conversations c ON c.id = cd.conversation_id
+     WHERE cd.conversation_id = $1
+     AND c.user_id = $2
    ) AS has_documents`,
-  [conversationId],
-);
+      [conversationId, req.session.userId],
+    );
 
-// GENERAL CHAT: No PDFs attached
-if (!attachedDocumentsResult.rows[0].has_documents) {
-  currentStage = "Gemini generation (general chat)";
+    // GENERAL CHAT: No PDFs attached
+    if (!attachedDocumentsResult.rows[0].has_documents) {
+      currentStage = "Gemini generation (general chat)";
 
-  const llmStart = performance.now();
+      const llmStart = performance.now();
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: `
+      const response = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: `
       You are DocuMind, a helpful AI assistant.
 
       Answer the user's question naturally and accurately.
@@ -85,31 +125,32 @@ if (!attachedDocumentsResult.rows[0].has_documents) {
       User question:
       ${question}
     `,
-  });
+      });
 
-  const llmTime = performance.now() - llmStart;
-  const answer = response.text;
+      const llmTime = performance.now() - llmStart;
+      const answer = response.text;
 
-  await pool.query(
-    `UPDATE messages
-     SET content = $1,
-         status = $2
-     WHERE id = $3`,
-    [answer, "completed", assistantMessageId],
-  );
+      await pool.query(
+        `UPDATE messages
+       SET content = $1,
+       status = $2
+   WHERE id = $3
+   AND conversation_id = $4`,
+        [answer, "completed", assistantMessageId, conversationId],
+      );
 
-  const totalTime = performance.now() - start;
+      const totalTime = performance.now() - start;
 
-  return res.json({
-    question,
-    answer,
-    sources: [],
-    llmTime,
-    totalTime,
-  });
-}
+      return res.json({
+        question,
+        answer,
+        sources: [],
+        llmTime,
+        totalTime,
+      });
+    }
 
-currentStage = "embedding";
+    currentStage = "embedding";
 
     const embeddingStart = performance.now();
     const embedding = await generateEmbedding(question);
@@ -120,6 +161,7 @@ currentStage = "embedding";
     const result = await pool.query(searchChunksQuery, [
       JSON.stringify(embedding),
       conversationId,
+      req.session.userId,
     ]);
     const retrievalTime = performance.now() - retrievalStart;
 
@@ -133,9 +175,10 @@ currentStage = "embedding";
     if (!context) {
       await pool.query(
         `UPDATE messages
-     SET status = $1
-     WHERE id = $2`,
-        ["failed", assistantMessageId],
+   SET status = $1
+   WHERE id = $2
+   AND conversation_id = $3`,
+        ["failed", assistantMessageId, conversationId],
       );
 
       return res.status(404).json({
@@ -176,10 +219,10 @@ currentStage = "embedding";
 
     const answer = response.text;
 
-    const client = await pool.connect();
+    const citationClient  = await pool.connect();
 
     try {
-      await client.query("BEGIN");
+      await citationClient .query("BEGIN");
 
       // Save citations
       if (result.rows.length > 0) {
@@ -194,7 +237,7 @@ currentStage = "embedding";
           values.push(assistantMessageId, row.id, row.distance);
         });
 
-        await client.query(
+        await citationClient .query(
           `INSERT INTO message_sources (message_id, chunk_id, distance)
        VALUES ${placeholders.join(", ")}
        ON CONFLICT (message_id, chunk_id) DO NOTHING`,
@@ -203,25 +246,26 @@ currentStage = "embedding";
       }
 
       // Save answer and mark assistant message completed
-      await client.query(
+      await citationClient .query(
         `UPDATE messages
-     SET content = $1,
-         status = $2
-     WHERE id = $3`,
-        [answer, "completed", assistantMessageId],
+   SET content = $1,
+       status = $2
+   WHERE id = $3
+   AND conversation_id = $4`,
+        [answer, "completed", assistantMessageId, conversationId],
       );
 
-      await client.query("COMMIT");
+      await citationClient .query("COMMIT");
     } catch (error) {
       try {
-        await client.query("ROLLBACK");
+        await citationClient .query("ROLLBACK");
       } catch (rollbackError) {
         console.error("Transaction rollback failed:", rollbackError);
       }
 
       throw error;
     } finally {
-      client.release();
+      citationClient .release();
     }
 
     res.json({
@@ -248,9 +292,10 @@ currentStage = "embedding";
       try {
         await pool.query(
           `UPDATE messages
-       SET status = $1
-       WHERE id = $2`,
-          ["failed", assistantMessageId],
+   SET status = $1
+   WHERE id = $2
+   AND conversation_id = $3`,
+          ["failed", assistantMessageId, conversationId],
         );
       } catch (updateError) {
         console.error(

@@ -2,21 +2,23 @@ const express = require("express");
 const pool = require("../db/pool");
 const fs = require("fs");
 const path = require("path");
+const requireAuth = require("../middleware/requireAuth");
+const router = express.Router();
+
+router.use(requireAuth);
 
 const getConversationMessagesQuery = fs.readFileSync(
   path.join(__dirname, "../queries/getConversationMessages.sql"),
-  "utf8"
+  "utf8",
 );
-
-const router = express.Router();
 
 router.post("/", async (req, res) => {
   try {
     const result = await pool.query(
-      `INSERT INTO conversations (title)
-       VALUES ($1)
-       RETURNING *`,
-      ["New conversation"]
+      `INSERT INTO conversations (title, user_id)
+   VALUES ($1, $2)
+   RETURNING *`,
+      ["New conversation", req.session.userId],
     );
 
     res.status(201).json({
@@ -35,8 +37,10 @@ router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, title, created_at, updated_at
-       FROM conversations
-       ORDER BY updated_at DESC`
+   FROM conversations
+   WHERE user_id = $1
+   ORDER BY updated_at DESC`,
+      [req.session.userId],
     );
 
     res.json({
@@ -69,8 +73,10 @@ router.post("/:id/documents", async (req, res) => {
 
     // Check whether the conversation exists.
     const conversationResult = await client.query(
-      "SELECT id FROM conversations WHERE id = $1",
-      [conversationId]
+      `SELECT id
+   FROM conversations
+   WHERE id = $1 AND user_id = $2`,
+      [conversationId, req.session.userId],
     );
 
     if (conversationResult.rows.length === 0) {
@@ -84,9 +90,10 @@ router.post("/:id/documents", async (req, res) => {
     // Check whether all requested documents exist.
     const documentsResult = await client.query(
       `SELECT id
-       FROM documents
-       WHERE id = ANY($1::uuid[])`,
-      [documentIds]
+   FROM documents
+   WHERE id = ANY($1::uuid[])
+   AND user_id = $2`,
+      [[...new Set(documentIds)], req.session.userId],
     );
 
     if (documentsResult.rows.length !== new Set(documentIds).size) {
@@ -103,7 +110,7 @@ router.post("/:id/documents", async (req, res) => {
        (conversation_id, document_id)
        SELECT $1, unnest($2::uuid[])
        ON CONFLICT (conversation_id, document_id) DO NOTHING`,
-      [conversationId, [...new Set(documentIds)]]
+      [conversationId, [...new Set(documentIds)]],
     );
 
     // Retrieve all documents currently attached.
@@ -113,7 +120,7 @@ router.post("/:id/documents", async (req, res) => {
        JOIN documents d ON d.id = cd.document_id
        WHERE cd.conversation_id = $1
        ORDER BY cd.attached_at ASC`,
-      [conversationId]
+      [conversationId],
     );
 
     await client.query("COMMIT");
@@ -141,12 +148,15 @@ router.delete("/:id/documents/:documentId", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `DELETE FROM conversation_documents
-       WHERE conversation_id = $1
-       AND document_id = $2
-       RETURNING conversation_id, document_id`,
-      [conversationId, documentId]
-    );
+  `DELETE FROM conversation_documents cd
+   USING conversations c
+   WHERE cd.conversation_id = c.id
+   AND cd.conversation_id = $1
+   AND cd.document_id = $2
+   AND c.user_id = $3
+   RETURNING cd.conversation_id, cd.document_id`,
+  [conversationId, documentId, req.session.userId]
+);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -167,23 +177,25 @@ router.delete("/:id/documents/:documentId", async (req, res) => {
   }
 });
 
-//return the documents associated with that conversation 
+//return the documents associated with that conversation
 router.get("/:id/documents", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(
-      `SELECT
-        d.id,
-        d.filename,
-        d.uploaded_at,
-        cd.attached_at
-       FROM conversation_documents cd
-       JOIN documents d ON d.id = cd.document_id
-       WHERE cd.conversation_id = $1
-       ORDER BY cd.attached_at DESC`,
-      [id]
-    );
+   const result = await pool.query(
+  `SELECT
+    d.id,
+    d.filename,
+    d.uploaded_at,
+    cd.attached_at
+   FROM conversation_documents cd
+   JOIN documents d ON d.id = cd.document_id
+   JOIN conversations c ON c.id = cd.conversation_id
+   WHERE cd.conversation_id = $1
+   AND c.user_id = $2
+   ORDER BY cd.attached_at DESC`,
+  [id, req.session.userId]
+);
 
     res.json({ documents: result.rows });
   } catch (error) {
@@ -199,9 +211,11 @@ router.get("/:id/messages", async (req, res) => {
   try {
     // Check whether the conversation exists
     const conversationResult = await pool.query(
-      "SELECT id FROM conversations WHERE id = $1",
-      [id]
-    );
+  `SELECT id
+   FROM conversations
+   WHERE id = $1 AND user_id = $2`,
+  [id, req.session.userId]
+);
 
     if (conversationResult.rows.length === 0) {
       return res.status(404).json({
@@ -210,10 +224,7 @@ router.get("/:id/messages", async (req, res) => {
     }
 
     // Retrieve messages and their sources
-    const result = await pool.query(
-      getConversationMessagesQuery,
-      [id]
-    );
+    const result = await pool.query(getConversationMessagesQuery, [id]);
 
     res.json({
       messages: result.rows,
@@ -233,11 +244,11 @@ router.delete("/:id", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `DELETE FROM conversations
-       WHERE id = $1
-       RETURNING id`,
-      [id],
-    );
+  `DELETE FROM conversations
+   WHERE id = $1 AND user_id = $2
+   RETURNING id`,
+  [id, req.session.userId]
+);
 
     if (result.rows.length === 0) {
       return res.status(404).json({

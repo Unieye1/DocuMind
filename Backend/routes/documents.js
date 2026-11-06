@@ -4,7 +4,9 @@ const pool = require("../db/pool");
 const { PDFParse } = require("pdf-parse");
 const chunkText = require("../utils/chunkText");
 const generateEmbedding = require("../utils/generateEmbedding");
+const requireAuth = require("../middleware/requireAuth");
 const router = express.Router();
+router.use(requireAuth);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -36,10 +38,10 @@ router.post("/", upload.single("document"), async (req, res) => {
     }));
     console.log("Extracted text from PDF:", pages);
     const documentResult = await pool.query(
-      `INSERT INTO documents (filename)
-   VALUES ($1)
+      `INSERT INTO documents (filename, user_id)
+   VALUES ($1, $2)
    RETURNING id`,
-      [req.file.originalname],
+      [req.file.originalname, req.session.userId],
     );
 
     const documentId = documentResult.rows[0].id;
@@ -96,14 +98,16 @@ router.post("/", upload.single("document"), async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        id,
-        filename,
-        uploaded_at
-      FROM documents
-      ORDER BY uploaded_at DESC
-    `);
+    const result = await pool.query(
+      `SELECT
+      id,
+      filename,
+      uploaded_at
+   FROM documents
+   WHERE user_id = $1
+   ORDER BY uploaded_at DESC`,
+      [req.session.userId],
+    );
 
     res.status(200).json({
       documents: result.rows,
@@ -123,9 +127,9 @@ router.delete("/:id", async (req, res) => {
 
     const result = await pool.query(
       `DELETE FROM documents
-       WHERE id = $1
-       RETURNING id, filename`,
-      [id]
+   WHERE id = $1 AND user_id = $2
+   RETURNING id, filename`,
+      [id, req.session.userId],
     );
 
     if (result.rowCount === 0) {
@@ -138,7 +142,6 @@ router.delete("/:id", async (req, res) => {
       message: "Document deleted successfully",
       document: result.rows[0],
     });
-
   } catch (error) {
     console.error("Failed to delete document:", error.message);
 
