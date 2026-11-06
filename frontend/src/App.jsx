@@ -2,6 +2,10 @@ import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import { useState, useEffect } from "react";
 import { getDocuments, uploadDocument, deleteDocument } from "./api/documents";
+import { getCurrentUser } from "./api/auth";
+import LandingPage from "./components/LandingPage";
+import AuthModal from "./components/AuthModal";
+import { logoutUser } from "./api/auth";
 import {
   createConversation,
   getConversations,
@@ -13,6 +17,11 @@ import {
 } from "./api/conversations";
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+
   const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
 
@@ -21,6 +30,7 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [attachedDocuments, setAttachedDocuments] = useState([]);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   async function fetchDocuments() {
     try {
@@ -106,37 +116,49 @@ function App() {
     }
   }
 
-
   async function handleDeleteConversation(conversationId) {
-  const confirmed = window.confirm(
-    "Are you sure you want to delete this conversation? Its messages will also be deleted.",
-  );
-
-  if (!confirmed) return;
-
-  try {
-    setError("");
-
-    await deleteConversation(conversationId);
-
-    setConversations((prev) =>
-      prev.filter((conversation) => conversation.id !== conversationId),
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this conversation? Its messages will also be deleted.",
     );
 
-    // If the deleted conversation was active, clear the workspace.
-    if (activeConversationId === conversationId) {
-      setActiveConversationId(null);
-      setMessages([]);
-      setAttachedDocuments([]);
+    if (!confirmed) return;
+
+    try {
+      setError("");
+
+      await deleteConversation(conversationId);
+
+      setConversations((prev) =>
+        prev.filter((conversation) => conversation.id !== conversationId),
+      );
+
+      // If the deleted conversation was active, clear the workspace.
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(null);
+        setMessages([]);
+        setAttachedDocuments([]);
+      }
+    } catch (error) {
+      setError(error.message);
     }
-  } catch (error) {
-    setError(error.message);
   }
-}
+
+  async function checkAuthentication() {
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+    } catch (error) {
+      setUser(null);
+      return;
+    } finally {
+      setAuthLoading(false);
+    }
+
+    await Promise.all([fetchDocuments(), fetchConversations()]);
+  }
 
   useEffect(() => {
-    fetchDocuments();
-    fetchConversations();
+    checkAuthentication();
   }, []);
 
   async function handleUpload(file) {
@@ -171,6 +193,62 @@ function App() {
     }
   }
 
+  async function handleLogout() {
+    setLogoutLoading(true);
+
+    try {
+      await logoutUser();
+
+      setUser(null);
+      setDocuments([]);
+      setConversations([]);
+      setActiveConversationId(null);
+      setMessages([]);
+      setAttachedDocuments([]);
+      setShowAuthModal(false);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLogoutLoading(false);
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F8F9FC]">
+        <p className="text-slate-500">Loading DocuMind...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <LandingPage
+          onLogin={() => {
+            setAuthMode("login");
+            setShowAuthModal(true);
+          }}
+          onSignUp={() => {
+            setAuthMode("register");
+            setShowAuthModal(true);
+          }}
+        />
+
+        {showAuthModal && (
+          <AuthModal
+            initialMode={authMode}
+            onClose={() => setShowAuthModal(false)}
+            onSuccess={async (authenticatedUser) => {
+              setUser(authenticatedUser);
+
+              await Promise.all([fetchDocuments(), fetchConversations()]);
+            }}
+          />
+        )}
+      </>
+    );
+  }
   return (
     <div className="flex h-screen overflow-hidden bg-[#F8F9FC] text-slate-800">
       <Sidebar
@@ -195,6 +273,9 @@ function App() {
           messages={messages}
           setMessages={setMessages}
           attachedDocuments={attachedDocuments}
+          user={user}
+          onLogout={handleLogout}
+          logoutLoading={logoutLoading}
         />
       </main>
     </div>

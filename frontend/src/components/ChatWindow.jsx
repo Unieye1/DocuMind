@@ -2,12 +2,16 @@ import { useState } from "react";
 import { Send, Paperclip, ChevronDown } from "lucide-react";
 import { askQuestion } from "../api/documents";
 import ReactMarkdown from "react-markdown";
+import ProfileMenu from "./ProfileMenu";
 
 function ChatWindow({
   conversationId,
   messages,
   setMessages,
   attachedDocuments,
+  user,
+  onLogout,
+  logoutLoading,
 }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,6 +83,8 @@ function ChatWindow({
             )}
           </div>
         </div>
+
+        <ProfileMenu user={user} onLogout={onLogout} loading={logoutLoading} />
       </header>
 
       {/* Chat area */}
@@ -188,7 +194,7 @@ function ChatWindow({
 
           <button
             type="submit"
-            disabled={!question.trim() || !conversationId  || loading}
+            disabled={!question.trim() || !conversationId || loading}
             className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg"
           >
             {loading ? "..." : <Send size={18} />}

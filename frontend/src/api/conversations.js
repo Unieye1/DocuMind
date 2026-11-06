@@ -5,6 +5,7 @@ const API_URL = "http://localhost:3000/api";
 export async function createConversation() {
   const response = await fetch(`${API_URL}/conversations`, {
     method: "POST",
+    credentials: "include",
   });
 
   const data = await response.json();
@@ -18,7 +19,9 @@ export async function createConversation() {
 
 // Fetch all conversations
 export async function getConversations() {
-  const response = await fetch(`${API_URL}/conversations`);
+  const response = await fetch(`${API_URL}/conversations`,{
+    credentials: "include",
+  });
 
   const data = await response.json();
 
@@ -32,7 +35,9 @@ export async function getConversations() {
 // Fetch messages for a conversation
 export async function getConversationMessages(conversationId) {
   const response = await fetch(
-    `${API_URL}/conversations/${conversationId}/messages`
+  `${API_URL}/conversations/${conversationId}/messages`,{
+    credentials: "include",
+  }
   );
 
   const data = await response.json();
@@ -47,7 +52,9 @@ export async function getConversationMessages(conversationId) {
 // Fetch PDFs attached to a conversation
 export async function getConversationDocuments(conversationId) {
   const response = await fetch(
-    `${API_URL}/conversations/${conversationId}/documents`
+    `${API_URL}/conversations/${conversationId}/documents`,{
+      credentials: "include",
+    }
   );
 
   const data = await response.json();
@@ -68,6 +75,7 @@ export async function attachDocuments(conversationId, documentIds) {
       headers: {
         "Content-Type": "application/json",
       },
+      credentials: "include",
       body: JSON.stringify({ documentIds }),
     }
   );
@@ -87,6 +95,7 @@ export async function detachDocument(conversationId, documentId) {
     `${API_URL}/conversations/${conversationId}/documents/${documentId}`,
     {
       method: "DELETE",
+      credentials: "include",
     }
   );
 
@@ -105,6 +114,7 @@ export async function deleteConversation(conversationId) {
     `${API_URL}/conversations/${conversationId}`,
     {
       method: "DELETE",
+      credentials: "include",
     },
   );
 

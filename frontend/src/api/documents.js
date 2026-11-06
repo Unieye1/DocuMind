@@ -1,8 +1,10 @@
 const API_URL = "http://localhost:3000/api";
 
 export async function getDocuments() {
-  const response = await fetch(`${API_URL}/documents`);
-
+  const response = await fetch(`${API_URL}/documents`,{
+    credentials: "include",
+  });
+    
   if (!response.ok) {
     throw new Error("Failed to fetch documents");
   }
@@ -19,6 +21,7 @@ export async function uploadDocument(file) {
 
   const response = await fetch(`${API_URL}/documents`, {
     method: "POST",
+    credentials: "include",
     body: formData,
   });
 
@@ -34,9 +37,10 @@ export async function uploadDocument(file) {
 
 export async function deleteDocument(documentId) {
   const response = await fetch(
-    `http://localhost:3000/api/documents/${documentId}`,
+    `${API_URL}/documents/${documentId}`,
     {
       method: "DELETE",
+      credentials: "include",
     }
   );
 
@@ -52,6 +56,7 @@ export async function deleteDocument(documentId) {
 export async function askQuestion(question, conversationId) {
   const response = await fetch(`${API_URL}/questions`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
