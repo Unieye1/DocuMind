@@ -36,4 +36,11 @@ WHERE m.conversation_id = $1
 
 GROUP BY m.id
 
-ORDER BY m.created_at ASC, m.id ASC;
+-- ORDER BY m.created_at ASC, m.id ASC;
+ORDER BY
+    m.created_at ASC,
+    CASE
+        WHEN m.role = 'user' THEN 0
+        WHEN m.role = 'assistant' THEN 1
+    END ASC,
+    m.id ASC;

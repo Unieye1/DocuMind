@@ -1,5 +1,5 @@
 const express = require("express");
-const generateEmbedding = require("../utils/generateEmbedding");
+const generateEmbeddings = require("../utils/generateEmbedding");
 const pool = require("../db/pool");
 const fs = require("fs");
 const path = require("path");
@@ -49,46 +49,43 @@ router.post("/", async (req, res) => {
         error: "Conversation not found",
       });
     }
-   // Atomically insert both messages
-const messageClient = await pool.connect();
+    // Atomically insert both messages
+    const messageClient = await pool.connect();
 
-try {
-  await messageClient.query("BEGIN");
+    try {
+      await messageClient.query("BEGIN");
 
-  // Insert user's message
-  await messageClient.query(
-    `INSERT INTO messages (conversation_id, role, content)
+      // Insert user's message
+      await messageClient.query(
+        `INSERT INTO messages (conversation_id, role, content)
      VALUES ($1, $2, $3)`,
-    [conversationId, "user", question.trim()]
-  );
+        [conversationId, "user", question.trim()],
+      );
 
-  // Insert pending assistant message
-  const assistantMessageResult = await messageClient.query(
-    `INSERT INTO messages (conversation_id, role, content, status)
+      // Insert pending assistant message
+      const assistantMessageResult = await messageClient.query(
+        `INSERT INTO messages (conversation_id, role, content, status)
      VALUES ($1, $2, $3, $4)
      RETURNING id`,
-    [conversationId, "assistant", "", "pending"]
-  );
+        [conversationId, "assistant", "", "pending"],
+      );
 
-  const newAssistantMessageId = assistantMessageResult.rows[0].id;
+      const newAssistantMessageId = assistantMessageResult.rows[0].id;
 
-  await messageClient.query("COMMIT");
+      await messageClient.query("COMMIT");
 
+      assistantMessageId = newAssistantMessageId;
+    } catch (error) {
+      try {
+        await messageClient.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Transaction rollback failed:", rollbackError);
+      }
 
-  assistantMessageId = newAssistantMessageId;
-
-} catch (error) {
-  try {
-    await messageClient.query("ROLLBACK");
-  } catch (rollbackError) {
-    console.error("Transaction rollback failed:", rollbackError);
-  }
-
-  throw error;
-
-} finally {
-  messageClient.release();
-}
+      throw error;
+    } finally {
+      messageClient.release();
+    }
     await pool.query(
       `UPDATE conversations
    SET updated_at = NOW()
@@ -153,7 +150,7 @@ try {
     currentStage = "embedding";
 
     const embeddingStart = performance.now();
-    const embedding = await generateEmbedding(question);
+    const [embedding] = await generateEmbeddings([question]);
     const embeddingTime = performance.now() - embeddingStart;
 
     currentStage = "retrieval";
@@ -219,10 +216,10 @@ try {
 
     const answer = response.text;
 
-    const citationClient  = await pool.connect();
+    const citationClient = await pool.connect();
 
     try {
-      await citationClient .query("BEGIN");
+      await citationClient.query("BEGIN");
 
       // Save citations
       if (result.rows.length > 0) {
@@ -237,7 +234,7 @@ try {
           values.push(assistantMessageId, row.id, row.distance);
         });
 
-        await citationClient .query(
+        await citationClient.query(
           `INSERT INTO message_sources (message_id, chunk_id, distance)
        VALUES ${placeholders.join(", ")}
        ON CONFLICT (message_id, chunk_id) DO NOTHING`,
@@ -246,7 +243,7 @@ try {
       }
 
       // Save answer and mark assistant message completed
-      await citationClient .query(
+      await citationClient.query(
         `UPDATE messages
    SET content = $1,
        status = $2
@@ -255,17 +252,17 @@ try {
         [answer, "completed", assistantMessageId, conversationId],
       );
 
-      await citationClient .query("COMMIT");
+      await citationClient.query("COMMIT");
     } catch (error) {
       try {
-        await citationClient .query("ROLLBACK");
+        await citationClient.query("ROLLBACK");
       } catch (rollbackError) {
         console.error("Transaction rollback failed:", rollbackError);
       }
 
       throw error;
     } finally {
-      citationClient .release();
+      citationClient.release();
     }
 
     res.json({
