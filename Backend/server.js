@@ -11,7 +11,10 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
 const port = 3000;
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:8080"
+  ],
   credentials: true
 }));
 

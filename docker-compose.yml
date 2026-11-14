@@ -10,22 +10,28 @@ services:
     env_file:
       - ./Backend/.env.docker
     depends_on:
-      - db
+      db:
+       condition: service_healthy
 
   db:
     image: pgvector/pgvector:pg18
     container_name: documind-db
     env_file:
       - ./Backend/.env.db
-    ports:
-      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     container_name: documind-frontend
     ports:
       - "5173:5173"

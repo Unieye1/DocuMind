@@ -1,5 +1,5 @@
 
-const API_URL = "http://localhost:3001/api";
+const API_URL = "/api";
 
 // Check whether a user is currently logged in
 export async function getCurrentUser() {

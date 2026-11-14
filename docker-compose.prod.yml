@@ -1,0 +1,18 @@
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: documind-frontend-prod
+    ports: !override
+      - "8080:80"
+    volumes: !reset []
+    command: !reset []
+
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+      target: production
