@@ -1,0 +1,42 @@
+
+services:
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: documind-backend
+    ports:
+      - "3001:3000"
+    env_file:
+      - ./Backend/.env.docker
+    depends_on:
+      - db
+
+  db:
+    image: pgvector/pgvector:pg18
+    container_name: documind-db
+    env_file:
+      - ./Backend/.env.db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: documind-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0    
+
+volumes:
+  postgres_data:
+
+
+
+

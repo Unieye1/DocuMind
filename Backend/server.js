@@ -33,6 +33,25 @@ app.use(
   })
 );
 
+//Health check endpoint for server
+app.get("/api/health/db", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+
+    res.json({
+      status: "ok",
+      database: "connected",
+    });
+  } catch (error) {
+    console.error("Database health check failed:", error);
+
+    res.status(500).json({
+      status: "error",
+      database: "disconnected",
+    });
+  }
+});
+
 //Router for handling document uploads
 const documentsRouter = require("./routes/documents");
 app.use("/api/documents", documentsRouter);

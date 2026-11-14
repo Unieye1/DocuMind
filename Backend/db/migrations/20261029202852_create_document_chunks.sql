@@ -1,5 +1,6 @@
 
 -- migrate:up
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE document_chunks (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_name TEXT NOT NULL,
