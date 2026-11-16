@@ -10,6 +10,9 @@ services:
       - "8080:80"
     volumes: !reset []
     command: !reset []
+    depends_on:
+      backend:
+        condition: service_healthy
 
   backend:
     build:
