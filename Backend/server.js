@@ -12,12 +12,14 @@ const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const port = process.env.PORT || 3000;
 
 app.set("trust proxy", 1);
-app.use(
-  cors({
-    origin: ["http://localhost:5173", "http://localhost:8080"],
-    credentials: true,
-  }),
-);
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "https://documind-943.pages.dev"
+  ],
+  credentials: true
+}));
 
 app.use(
   session({
