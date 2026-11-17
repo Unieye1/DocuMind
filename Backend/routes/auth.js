@@ -25,7 +25,7 @@ router.post("/register", async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
     const existingUser = await pool.query(
       "SELECT id FROM users WHERE email = $1",
-      [normalizedEmail]
+      [normalizedEmail],
     );
 
     if (existingUser.rows.length > 0) {
@@ -38,12 +38,23 @@ router.post("/register", async (req, res) => {
       `INSERT INTO users (name, email, password_hash)
        VALUES ($1, $2, $3)
        RETURNING id, name, email, created_at`,
-      [name.trim(), normalizedEmail, passwordHash]
+      [name.trim(), normalizedEmail, passwordHash],
     );
 
-    return res.status(201).json({
-      message: "Account created successfully",
-      user: result.rows[0],
+    req.session.userId = result.rows[0].id;
+
+    req.session.save((err) => {
+      if (err) {
+        console.error("Session save error:", err);
+        return res.status(500).json({
+          error: "Account created, but session could not be established",
+        });
+      }
+
+      return res.status(201).json({
+        message: "Account created successfully",
+        user: result.rows[0],
+      });
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -73,7 +84,7 @@ router.post("/login", async (req, res) => {
       `SELECT id, name, email, password_hash
        FROM users
        WHERE email = $1`,
-      [normalizedEmail]
+      [normalizedEmail],
     );
 
     const user = result.rows[0];
@@ -86,10 +97,7 @@ router.post("/login", async (req, res) => {
     }
 
     // Compare submitted password with stored hash
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -137,7 +145,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-
 // GET /api/auth/me
 router.get("/me", async (req, res) => {
   try {
@@ -153,7 +160,7 @@ router.get("/me", async (req, res) => {
       `SELECT id, name, email, created_at
        FROM users
        WHERE id = $1`,
-      [req.session.userId]
+      [req.session.userId],
     );
 
     const user = result.rows[0];
