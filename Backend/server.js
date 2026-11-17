@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require("express");
 const app = express();
 const cors = require("cors");
 app.use(express.json());
@@ -6,17 +6,18 @@ require("dotenv").config();
 const session = require("express-session");
 const PgSession = require("connect-pg-simple")(session);
 const pool = require("./db/pool");
-const {GoogleGenAI} = require('@google/genai');
+const { GoogleGenAI } = require("@google/genai");
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
-const port = 3000;
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://localhost:8080"
-  ],
-  credentials: true
-}));
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const port = process.env.PORT || 3000;
+
+app.set("trust proxy", 1);
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://localhost:8080"],
+    credentials: true,
+  }),
+);
 
 app.use(
   session({
@@ -29,11 +30,11 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24,
     },
-  })
+  }),
 );
 
 //Health check endpoint for server
@@ -72,5 +73,5 @@ const authRouter = require("./routes/auth");
 app.use("/api/auth", authRouter);
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+  console.log(`Example app listening on port ${port}`);
+});

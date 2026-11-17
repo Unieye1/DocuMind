@@ -20,9 +20,11 @@ const searchChunksQuery = fs.readFileSync(
 router.post("/", async (req, res) => {
   let currentStage = "initialization";
   let assistantMessageId;
+  let conversationId;
   try {
     const start = performance.now();
-    const { question, conversationId } = req.body;
+    const { question,  } = req.body;
+    conversationId = req.body.conversationId;
 
     if (!conversationId) {
       return res.status(400).json({
