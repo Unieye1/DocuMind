@@ -23,7 +23,7 @@ router.post("/", async (req, res) => {
   let conversationId;
   try {
     const start = performance.now();
-    const { question,  } = req.body;
+    const { question } = req.body;
     conversationId = req.body.conversationId;
 
     if (!conversationId) {
@@ -152,7 +152,7 @@ router.post("/", async (req, res) => {
     currentStage = "embedding";
 
     const embeddingStart = performance.now();
-    const [embedding] = await generateEmbeddings([question]);
+    const [embedding] = await generateEmbeddings([question], "question");
     const embeddingTime = performance.now() - embeddingStart;
 
     currentStage = "retrieval";

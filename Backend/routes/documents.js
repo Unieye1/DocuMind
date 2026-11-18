@@ -73,6 +73,7 @@ router.post("/", upload.single("document"), async (req, res) => {
 
       const embeddings = await generateEmbeddings(
         batch.map((item) => item.text),
+        "ingestion",
       );
 
       // Associate each vector with its original chunk
